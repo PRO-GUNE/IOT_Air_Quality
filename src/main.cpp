@@ -16,18 +16,24 @@ Adafruit_SGP30 sgp;
 DHT dht(DHTPIN, DHTTYPE); // Initialize DHT sensor
 
 // Replace with your network credentials
-const char *ssid = "your_SSID";
-const char *password = "your_PASSWORD";
+const char *ssid = "AndroidAPBD06";
+const char *password = "1234567890";
 
 // MQTT setup
-const char *mqtt_server = "your_MQTT_server_IP";
-const char *mqtt_username = "your_MQTT_username";
-const char *mqtt_password = "your_MQTT_password";
+const char *mqtt_server = "broker.hivemq.com";
+const int mqtt_port = 1883;
+
 const char *mqtt_topic_DHT = "DATA/ESP32/DHT22";
 const char *mqtt_topic_SGP30 = "DATA/ESP32/SGP30";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+long last_time = millis(), now, frequency = 10;
+
+void callback(char *topic, byte *payload, unsigned int length);
+void measure();
+void reconnect();
 
 void setup()
 {
@@ -47,31 +53,30 @@ void setup()
   Serial.println("WiFi connected");
 
   // Connect to MQTT broker
-  client.setServer(mqtt_server, 1883);
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback);
+
+  // Connect to MQTT broker
   while (!client.connected())
   {
-    Serial.println("Connecting to MQTT broker...");
-    if (client.connect("ESP32Client", mqtt_username, mqtt_password))
+    if (client.connect("ESP32Client"))
     {
-      Serial.println("MQTT broker connected");
+      Serial.println("Connected to MQTT broker");
     }
     else
     {
-      Serial.print("MQTT connection failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" retrying...");
-      delay(5000);
+      Serial.print("MQTT connection failed, error code: ");
+      Serial.println(client.state());
+      delay(2000);
     }
   }
 
   // Initialize SGP30 sensor
   Wire.begin(SDA, SCL);
 
-  if (!sgp.begin())
+  while (!sgp.begin())
   {
     Serial.println("Sensor not found :(");
-    while (1)
-      ;
   }
 
   Serial.println("SGP30 sensor found");
@@ -82,9 +87,48 @@ void setup()
 
 void loop()
 {
-  // Wait a few seconds between measurements
-  delay(2000);
+  // MQTT client loop
+  if (client.connected())
+  {
+    client.loop();
+    Serial.println("MQTT client loop");
 
+    // Wait a few seconds between measurements
+    now = millis();
+
+    if (now - last_time > frequency)
+    {
+      last_time = now;
+      measure();
+    }
+  }
+  else
+  {
+    reconnect();
+  }
+}
+
+void reconnect()
+{
+  // reconnect the client
+  while (!client.connected())
+  {
+    Serial.println("Connecting to MQTT broker...");
+    if (client.connect("ESP32Client"))
+    {
+      Serial.println("Connected to MQTT broker");
+    }
+    else
+    {
+      Serial.print("MQTT connection failed, error code: ");
+      Serial.println(client.state());
+      delay(2000);
+    }
+  }
+}
+
+void measure()
+{
   // Read temperature and humidity data
   float h = dht.readHumidity();
   float t = dht.readTemperature();
@@ -117,10 +161,20 @@ void loop()
   Serial.println(" ppb");
 
   // Publish temperature and humidity values to MQTT broker
-  String payload = "{\"temperature\": " + String(t) + ", \"humidity\": " + String(h) + "}";
+  String payload = "temperature: " + String(t) + ", humidity: " + String(h);
   client.publish(mqtt_topic_DHT, payload.c_str());
 
   // Publish eCO2 and TVOC values to MQTT broker
-  payload = "{\"eCO2\": " + String(sgp.eCO2) + ", \"TVOC\": " + String(sgp.TVOC) + "}";
+  payload = "eCO2: " + String(sgp.eCO2) + ", TVOC: " + String(sgp.TVOC);
   client.publish(mqtt_topic_SGP30, payload.c_str());
+}
+
+void callback(char *topic, byte *payload, unsigned int length)
+{
+  Serial.print("Callback - ");
+  Serial.print("Message:");
+  for (int i = 0; i < length; i++)
+  {
+    Serial.print((char)payload[i]);
+  }
 }
