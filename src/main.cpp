@@ -204,15 +204,10 @@ void measure()
 
 void callback(char *topic, byte *payload, unsigned int length)
 {
-  Serial.print("Callback - ");
-  Serial.print("Message:");
-
   // Update the frequency after checking the topic
   if (strcmp(topic, mqtt_topic_frequency) == 0)
   {
     // set the frequency in minutes
     frequency = atoi((char *)payload) * 60000;
-    Serial.print("Frequency: ");
-    Serial.println(frequency);
   }
 }
