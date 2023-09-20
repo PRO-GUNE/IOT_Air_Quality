@@ -1,7 +1,7 @@
 ![JavaScript](https://img.shields.io/badge/javascript-%23323330.svg?style=for-the-badge&logo=javascript&logoColor=%23F7DF1E)
 ![Node-RED](https://img.shields.io/badge/Node--RED-%238F0000.svg?style=for-the-badge&logo=node-red&logoColor=white)
 
-# IOT_Air_Quality
+# IOT Air Quality Node
 Develop an IOT device that monitors the indoor air quality and notifies the users of the air quality level
 It includes a interactive dashboard implemented using Node-RED.
 
