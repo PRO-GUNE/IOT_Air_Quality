@@ -4,57 +4,76 @@
 #include <DHT.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <Plantower_PMS7003.h>
 
 // SGP30 sensor setup
 #define SDA 21 // SDA = GPIO21
 #define SCL 22 // SCL = GPIO22
-Adafruit_SGP30 sgp;
-String SGP30payload; // String to hold SGP30 sensor data
+
+// PMS7003 sensor setup
+#define PMS70003SerialRX 16 // PMS7003 RX is connected to GPIO 16
+#define PMS70003SerialTX 17 // PMS7003 TX is connected to GPIO 17
 
 // DHT sensor setup
-#define DHTPIN 4          // DHT22 signal pin is connected to GPIO 4
-#define DHTTYPE DHT22     // DHT22 (AM2302)
-DHT dht(DHTPIN, DHTTYPE); // Initialize DHT sensor
-float h, t;               // Variables to hold sensor readings
-String DHTpayload;        // String to hold DHT sensor data
+#define DHTPIN 4      // DHT22 signal pin is connected to GPIO 4
+#define DHTTYPE DHT22 // DHT22 (AM2302)
 
-// Replace with your network credentials
-const char *ssid = "AndroidAPBD06";
-const char *password = "1234567890";
+// Objects declaration
 
-// MQTT setup
-const char *mqtt_server = "broker.hivemq.com";
-const int mqtt_port = 1883;
+Adafruit_SGP30 sgp;                              // define a SGP30 object
+HardwareSerial PMS70003Serial(2);                // define a Serial for UART1
+Plantower_PMS7003 pms7003 = Plantower_PMS7003(); // define a PMS7003 object
+DHT dht(DHTPIN, DHTTYPE);                        // define a DHT object
 
-// Publish topics
-const char *mqtt_topic_DHT = "DATA/ESP32/DHT22";
-const char *mqtt_topic_SGP30 = "DATA/ESP32/SGP30";
+// Varibles to hold sensor readings
 
-// Subscribe topics
-const char *mqtt_topic_frequency = "CONTROL/ESP32/FREQUENCY";
+String PMS7003payload;
+String SGP30payload; // String to hold SGP30 sensor data
+String DHTpayload;   // String to hold DHT sensor data
+float h, t;          // Variables to hold sensor readings
+
+// Library Initialization
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-long last_time = millis(), now, frequency = 10;
+// Variable Initialization with default values
 
-void callback(char *topic, byte *payload, unsigned int length);
-void measure();
-void MQTTConnect();
-void WiFiConnect();
-void SGP30Init();
-void DHTInit();
+const char *ssid = "Hello";
+const char *password = "abcdefghi";
+String clientId = "ESP32Client"; // Your WiFi password
+
+const char *mqtt_server = "public.mqtthq.com"; // MQTT broker IP
+const int mqtt_port = 1883;                    // MQTT broker port
+
+const char *mqtt_topic_DHT = "DATA/ESP32/DHT22";       // MQTT topic for DHT sensor
+const char *mqtt_topic_SGP30 = "DATA/ESP32/SGP30";     // MQTT topic for SGP30 sensor
+const char *mqtt_topic_PMS7003 = "DATA/ESP32/PMS7003"; // MQTT topic for PMS7003 sensor
+
+const char *mqtt_topic_frequency = "CONTROL/ESP32/FREQUENCY"; // MQTT topic for frequency control
+
+long last_time = millis(), now, frequency = 10; // Variable to hold last time measurement, current time and frequency
+
+// Function declaration
+
+void callback(char *topic, byte *payload, unsigned int length); // MQTT callback function
+void measure();                                                 // Function to read data from sensors
+void MQTTConnect();                                             // Function to connect to MQTT broker
+void WiFiConnect();                                             // Function to connect to WiFi network
+void SGP30Init();                                               // Function to initialize SGP30 sensor
+void DHTInit();                                                 // Function to initialize DHT sensor
+void PMS70003Init();
+// Function to initialize PMS7003 sensor
 
 void setup()
 {
-  Serial.begin(9600);
-
-  // Initialize sensors
+  Serial.begin(112500);
+  WiFiConnect();
+  PMS70003Serial.begin(9600, SERIAL_8N1, PMS70003SerialRX, PMS70003SerialTX);
   SGP30Init();
   DHTInit();
-
-  // Wait for few seconds to initialize the sensors
-  delay(5000);
+  PMS70003Init();
+  MQTTConnect();
 }
 
 void loop()
@@ -68,19 +87,54 @@ void loop()
     client.loop();
     // Publish data to MQTT broker
     client.publish(mqtt_topic_DHT, DHTpayload.c_str());
+    Serial.println("DHT Sensor data has published : " + String(DHTpayload));
     client.publish(mqtt_topic_SGP30, SGP30payload.c_str());
+    Serial.println("SGP30 Sensor data has published : " + String(SGP30payload));
+
+    client.publish(mqtt_topic_PMS7003, PMS7003payload.c_str());
+    Serial.println("PMS7003 Sensor data has published : " + String(PMS7003payload));
+
     client.subscribe(mqtt_topic_frequency);
+  }
+  else if (!client.connected())
+  {
+    MQTTConnect();
+  }
+  else if (WiFi.status() != WL_CONNECTED)
+  {
+    WiFiConnect();
   }
   else
   {
-    // Connect to WiFi network
-    WiFiConnect();
-
-    // Connect to MQTT broker
-    MQTTConnect();
+    Serial.println("Error Occured Cannot connect to any of ...");
   }
 }
 
+void PMS70003Init()
+{
+  // Initialize PMS7003 sensor
+  pms7003.init(&PMS70003Serial);
+}
+
+void measurePMS7003()
+{
+  // Read data from PMS7003
+  pms7003.updateFrame();
+  if (pms7003.hasNewData())
+  {
+    PMS7003payload = "PM1.0: " + String(pms7003.getPM_1_0()) + " ug/m3, PM2.5: " + String(pms7003.getPM_2_5()) + " ug/m3, PM10: " + String(pms7003.getPM_10_0()) + " ug/m3";
+  }
+}
+
+void debugPrintPMS7003()
+{
+  Serial.print("PM1.0 (ug/m3): ");
+  Serial.println(pms7003.getPM_1_0());
+  Serial.print("PM2.5 (ug/m3): ");
+  Serial.println(pms7003.getPM_2_5());
+  Serial.print("PPM10  (ug/m3): ");
+  Serial.println(pms7003.getPM_10_0());
+}
 void DHTInit()
 {
   // Initialize DHT sensor
@@ -88,6 +142,7 @@ void DHTInit()
 }
 void measureDHT()
 {
+
   // Read temperature and humidity data
   h = dht.readHumidity();
   t = dht.readTemperature();
@@ -200,6 +255,8 @@ void measure()
 
   // Read data from SGP30
   measureSGP30();
+
+  measurePMS7003();
 }
 
 void callback(char *topic, byte *payload, unsigned int length)
